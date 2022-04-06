@@ -1,11 +1,32 @@
 from tensorflow.keras.layers import Layer, Dense, Dropout, LayerNormalization
 import tensorflow as tf
 
-
+"""
+Base Attention class
+"""
+class BaseAttention(Layer):
+    def __init__(self):
+        super(BaseAttention, self).__init__()
+    
+    def get_config(self):
+        config = super(BaseAttention, self).get_config()        
+        return config
+        
+    def split_heads(self, x, batch_size):
+        """Split the last dimension into (num_heads, key_dim).
+        Transpose the result such that the shape is (batch_size, num_heads, seq_len, key_dim)
+        """
+        x = tf.reshape(x, (batch_size, -1, self.num_heads, self.key_dim))
+        return tf.transpose(x, perm=[0, 2, 1, 3])
+    
+    def get_attention(self, q, v, k=None, attention_mask=None):
+        return self.call(q, v, k, attention_mask, return_attention_scores = True)[1]
+    
+    
 """
 X-Linear MultiHead Attention
 """
-class X_Linear_Attention(Layer):
+class X_Linear_Attention(BaseAttention):
     def __init__(self, num_heads, key_dim):
         super(X_Linear_Attention, self).__init__()
         self.num_heads = num_heads
@@ -29,12 +50,7 @@ class X_Linear_Attention(Layer):
         config.update({"num_heads":self.num_heads, "key_dim":self.key_dim})
         return config
     
-    def split_heads(self, x, batch_size):
-        """Split the last dimension into (num_heads, key_dim).
-        Transpose the result such that the shape is (batch_size, num_heads, seq_len, key_dim)
-        """
-        x = tf.reshape(x, (batch_size, -1, self.num_heads, self.key_dim))
-        return tf.transpose(x, perm=[0, 2, 1, 3])
+    
     
     def product_attention(self, x, y):        
         return tf.einsum("...KD, ...QD -> ...KQD", tf.nn.elu(x), tf.nn.elu(y))
@@ -94,13 +110,15 @@ class X_Linear_Attention(Layer):
         if (return_attention_scores == True):
             return output, attention_weights
         return output
+    
+    
 
 
     
 """
 MultiHead Dot product attention
 """
-class MHAttention(Layer):
+class MHAttention(BaseAttention):
     def __init__(self, num_heads, key_dim):
         super(MHAttention, self).__init__()
         self.num_heads = num_heads
@@ -119,12 +137,6 @@ class MHAttention(Layer):
         config.update({"num_heads":self.num_heads, "key_dim":self.key_dim})
         return config
     
-    def split_heads(self, x, batch_size):
-        """Split the last dimension into (num_heads, key_dim).
-        Transpose the result such that the shape is (batch_size, num_heads, seq_len, key_dim)
-        """
-        x = tf.reshape(x, (batch_size, -1, self.num_heads, self.key_dim))
-        return tf.transpose(x, perm=[0, 2, 1, 3])
     
     def scaled_dot_product_attention(self, q, k, v, mask):
         matmul_qk = tf.matmul(q, k, transpose_b=True) 
@@ -134,8 +146,8 @@ class MHAttention(Layer):
         if mask is not None:                        
             mask = tf.cast(mask, tf.float32) # (bs, l_q, l_k)
             mask_ext = tf.expand_dims(mask, 1)
-            mask_ext = tf.expand_dims(mask_ext, -1) # (bs, 1, l_q, l_k, 1)            
-            scaled_attention_logits += ((1 - mask) * -1e9)
+            #mask_ext = tf.expand_dims(mask_ext, -1) # (bs, 1, l_q, l_k, 1)            
+            scaled_attention_logits += ((1 - mask_ext) * -1e9)
 
         attention_weights = tf.nn.softmax(scaled_attention_logits, axis=-1)  
         output = tf.matmul(attention_weights, v) 
@@ -166,3 +178,4 @@ class MHAttention(Layer):
         if (return_attention_scores == True):
             return output, attention_weights
         return output
+    
